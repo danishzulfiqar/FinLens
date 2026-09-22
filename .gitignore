@@ -1,0 +1,14 @@
+# Data (keep private statements and generated reports out of git)
+data/statements/*
+!data/statements/.gitkeep
+data/output/*
+!data/output/.gitkeep
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+.streamlit/secrets.toml
