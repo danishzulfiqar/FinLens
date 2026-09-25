@@ -9,6 +9,7 @@ import io
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from finlib import (
@@ -16,6 +17,7 @@ from finlib import (
     build_excel_report,
     categorize,
     category_breakdown,
+    forecast_balance,
     kpi_metrics,
     monthly_summary,
     parse_statement,
@@ -295,8 +297,8 @@ kpi_card(c4, "Closing Balance", money(k["closing_balance"], currency), BLUE, f'{
 
 st.write("")
 
-overview, txns, categories_tab, trends, recon_tab, export_tab = st.tabs(
-    ["Overview", "Transactions", "Categories", "Trends", "Reconciliation", "Export"]
+overview, txns, categories_tab, trends, forecast_tab, recon_tab, export_tab = st.tabs(
+    ["Overview", "Transactions", "Categories", "Trends", "Forecast", "Reconciliation", "Export"]
 )
 
 # --- Overview ----------------------------------------------------------------
@@ -440,6 +442,86 @@ with trends:
             .reset_index(drop=True)
         )
         st.dataframe(top_exp, hide_index=True, use_container_width=True)
+
+# --- Forecast ----------------------------------------------------------------
+with forecast_tab:
+    st.caption(
+        "Monte Carlo projection of the combined liquid balance. We bootstrap your "
+        "historical monthly net cash-flow into 2,000 simulated futures and show the "
+        "P10-P90 range around the median. Uses full history, ignoring the sidebar filters."
+    )
+    horizon = st.slider("Months ahead", min_value=3, max_value=12, value=6, key="fc_horizon")
+    res = forecast_balance(tx, horizon=horizon)
+    fc, hist, summary = res["forecast"], res["history"], res["summary"]
+
+    if not summary or summary["months_history"] < 2:
+        st.info("Need at least two months of history to build a forecast.")
+    else:
+        if not summary["reliable"]:
+            st.warning(
+                f"Only {summary['months_history']} months of history — bands are wide "
+                "and the projection is indicative rather than reliable."
+            )
+
+        f1, f2, f3, f4 = st.columns(4)
+        kpi_card(f1, "Current balance", money(summary["current_balance"], currency), ACCENT)
+        kpi_card(
+            f2, f"Projected in {horizon}m (P50)",
+            money(summary["proj_median_end"], currency),
+            GREEN if summary["proj_median_end"] >= summary["current_balance"] else RED,
+            sub="Median outcome",
+        )
+        kpi_card(
+            f3, "Downside (P10)", money(summary["proj_p10_end"], currency), RED,
+            sub="1-in-10 worse case",
+        )
+        kpi_card(
+            f4, "Chance of going negative",
+            f"{summary['prob_negative'] * 100:.0f}%",
+            RED if summary["prob_negative"] > 0.1 else GREEN,
+            sub=f"Within {horizon} months",
+        )
+
+        anchor_month = hist["month"].iloc[-1]
+        anchor_val = summary["current_balance"]
+        xs = [anchor_month] + list(fc["month"])
+        p50s = [anchor_val] + list(fc["p50"])
+        p10s = [anchor_val] + list(fc["p10"])
+        p90s = [anchor_val] + list(fc["p90"])
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=xs + xs[::-1], y=p90s + p10s[::-1], fill="toself",
+                fillcolor=THEME["accent_soft"], line=dict(width=0),
+                hoverinfo="skip", name="P10-P90",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=hist["month"], y=hist["balance"], mode="lines+markers",
+                line=dict(color=THEME["muted"], width=2), name="History",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=xs, y=p50s, mode="lines+markers",
+                line=dict(color=ACCENT, width=2, dash="dash"), name="Forecast (P50)",
+            )
+        )
+        if summary["proj_p10_end"] < 0:
+            fig.add_hline(y=0, line_dash="dot", line_color=RED)
+        style_fig(fig, 380, legend_title="", title="Balance Forecast")
+        st.plotly_chart(fig, use_container_width=True)
+
+        table = fc.rename(
+            columns={"month": "Month", "p10": "P10", "p50": "P50 (median)", "p90": "P90"}
+        )[["Month", "P10", "P50 (median)", "P90"]].copy()
+        table["Month"] = pd.to_datetime(table["Month"]).dt.strftime("%b %Y")
+        for col in ("P10", "P50 (median)", "P90"):
+            table[col] = table[col].round(0)
+        st.dataframe(table, hide_index=True, use_container_width=True)
+
 
 # --- Reconciliation ----------------------------------------------------------
 with recon_tab:

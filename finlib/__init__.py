@@ -11,6 +11,7 @@ from .analysis import (
 )
 from .dashboard import build_dashboard_workbook
 from .excel import build_excel_report
+from .forecast import forecast_balance
 from .parser import LAYOUTS, Statement, parse_statement
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "CATEGORY_COLORS",
     "build_excel_report",
     "build_dashboard_workbook",
+    "forecast_balance",
 ]
